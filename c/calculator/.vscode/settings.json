@@ -1,0 +1,8 @@
+{
+    "cmake.sourceDirectory": "C:/Users/Moritz/programming/fucking-around-and-finding-out/c/calculator",
+    "files.associations": {
+        "util.h": "c",
+        "print.h": "c",
+        "expression.h": "c"
+    }
+}
