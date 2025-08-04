@@ -3,6 +3,6 @@
 
 #include "structs.h"
 
-Exp* calculate(Exp* exp);
+struct Exp* calculate(struct Exp* exp);
 
 #endif

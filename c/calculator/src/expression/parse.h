@@ -3,6 +3,6 @@
 
 #include "structs.h"
 
-Exp* parse(char* input);
+struct Exp* parse(char* input);
 
 #endif

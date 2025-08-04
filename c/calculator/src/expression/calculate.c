@@ -1,20 +1,24 @@
 #include <stdlib.h>
+#include <stdio.h>
 
 #include "calculate.h"
 
-Exp *calculate(Exp *exp);
+struct Exp *calculate(struct Exp *exp);
 
-Exp *calculate(Exp *exp)
+struct Exp *calculate(struct Exp *exp)
 {
     if (exp == NULL)
         return NULL;
 
-    if (exp->type != OP)
+    if (exp->type == GROUP)
+        return calculate(exp->grouped);
+
+    if (exp->type == TERM)
         return exp;
 
-    Exp *result = malloc(sizeof(Exp));
-    Exp *left = calculate(exp->op->left);
-    Exp *right = calculate(exp->op->right);
+    struct Exp *result = malloc(sizeof(struct Exp));
+    struct Exp *left = calculate(exp->op->left);
+    struct Exp *right = calculate(exp->op->right);
 
     if (left->type != TERM || left->term->type != NUM)
         return NULL;
@@ -27,7 +31,7 @@ Exp *calculate(Exp *exp)
         int right_num = right->term->num;
 
         result->type = TERM;
-        result->term = malloc(sizeof(Term));
+        result->term = malloc(sizeof(struct Term));
         result->term->type = NUM;
 
         int calculated_num = 0;
@@ -47,11 +51,13 @@ Exp *calculate(Exp *exp)
             break;
         }
 
+        printf("%d %c %d = %d\n", left_num, exp->op->operand, right_num, calculated_num);
+
         result->term->num = calculated_num;
         return result;
     }
 
-    free(result)
+    free(result);
 
     return NULL;
 }

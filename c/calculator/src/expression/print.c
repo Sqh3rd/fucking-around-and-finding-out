@@ -3,26 +3,31 @@
 
 #include "print.h"
 
-void print(Exp *exp);
+void print(struct Exp *exp);
 
-void print_op(Op *op);
-void print_term(Term *term);
+void print_op(struct Op *op);
+void print_term(struct Term *term);
 
-void print(Exp *exp)
+void print(struct Exp *exp)
 {
     if (exp == NULL)
         return;
-    if (exp->type == OP)
+    switch (exp->type)
     {
+    case OP:
         print_op(exp->op);
-    }
-    else if (exp->type == TERM)
-    {
+        break;
+    case TERM:
         print_term(exp->term);
+        break;
+    case GROUP:
+        printf("(");
+        print(exp->grouped);
+        printf(")");
     }
 }
 
-void print_op(Op *op)
+void print_op(struct Op *op)
 {
     if (op == NULL)
         return;
@@ -31,7 +36,7 @@ void print_op(Op *op)
     print(op->right);
 }
 
-void print_term(Term *term)
+void print_term(struct Term *term)
 {
     if (term == NULL)
         return;
@@ -41,11 +46,11 @@ void print_term(Term *term)
         printf("%d", term->num);
 }
 
-void print_styled(Exp *exp, enum PrintStyle style);
-void print_op_styled(Op *op, enum PrintStyle style);
-void print_term_styled(Term *term, enum PrintStyle style);
+void print_styled(struct Exp *exp, enum PrintStyle style);
+void print_op_styled(struct Op *op, enum PrintStyle style);
+void print_term_styled(struct Term *term, enum PrintStyle style);
 
-void print_styled(Exp *exp, enum PrintStyle style)
+void print_styled(struct Exp *exp, enum PrintStyle style)
 {
     if (exp == NULL)
         return;
@@ -57,9 +62,13 @@ void print_styled(Exp *exp, enum PrintStyle style)
     {
         print_term_styled(exp->term, style);
     }
+    else if (exp->type == GROUP)
+    {
+        print_styled(exp->grouped, style);
+    }
 }
 
-void print_op_styled(Op *op, enum PrintStyle style)
+void print_op_styled(struct Op *op, enum PrintStyle style)
 {
     if (op == NULL)
         return;
@@ -82,7 +91,7 @@ void print_op_styled(Op *op, enum PrintStyle style)
     }
 }
 
-void print_term_styled(Term *term, enum PrintStyle style)
+void print_term_styled(struct Term *term, enum PrintStyle style)
 {
     if (term == NULL)
         return;

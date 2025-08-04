@@ -2,7 +2,7 @@
 
 #include "structs.h"
 
-void free_exp(Exp *exp);
+void free_exp(struct Exp *exp);
 
 void free_op(struct Op *op)
 {
@@ -13,7 +13,7 @@ void free_op(struct Op *op)
     free(op);
 }
 
-void free_exp(Exp *exp)
+void free_exp(struct Exp *exp)
 {
     if (exp == NULL)
         return;
@@ -25,6 +25,8 @@ void free_exp(Exp *exp)
     case TERM:
         free(exp->term);
         break;
+    case GROUP:
+        free_exp(exp->grouped);
     }
     free(exp);
 }

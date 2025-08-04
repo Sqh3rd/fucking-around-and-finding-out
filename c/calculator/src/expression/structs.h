@@ -1,8 +1,11 @@
-typedef struct Exp Exp;
-typedef struct Op Op;
-typedef struct Term Term;
+#ifndef STRUCTS_H
+#define STRUCTS_H
 
-void free_exp(Exp *exp);
+struct Exp;
+struct Op;
+struct Term;
+
+void free_exp(struct Exp *exp);
 
 enum ExpType
 {
@@ -12,7 +15,7 @@ enum ExpType
     NA
 };
 
-typedef struct Exp
+struct Exp
 {
     enum ExpType type;
     union
@@ -21,14 +24,14 @@ typedef struct Exp
         struct Term *term;
         struct Exp *grouped;
     };
-} Exp;
+};
 
-typedef struct Op
+struct Op
 {
     char operand;
     struct Exp *left;
     struct Exp *right;
-} Op;
+};
 
 enum TermType
 {
@@ -37,7 +40,7 @@ enum TermType
     EMPTY
 };
 
-typedef struct Term
+struct Term
 {
     enum TermType type;
     union
@@ -45,6 +48,6 @@ typedef struct Term
         char var;
         int num;
     };
-} Term;
+};
 
-
+#endif

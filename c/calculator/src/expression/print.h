@@ -8,7 +8,7 @@ enum PrintStyle {
     REVERSED_POLISH
 };
 
-void print(Exp* exp);
-void print_styled(Exp* exp, enum PrintStyle style);
+void print(struct Exp* exp);
+void print_styled(struct Exp* exp, enum PrintStyle style);
 
 #endif

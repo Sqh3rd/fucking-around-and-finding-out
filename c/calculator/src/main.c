@@ -42,9 +42,9 @@ int do_stuff(int length, char **strings)
     char *result = malloc(one_d_length(length, strings));
 
     concat_everything(length, strings, result);
-    printf("Expression: %s\n", result);
+    printf("[EXP] %s\n", result);
 
-    Exp *exp = parse(result);
+    struct Exp *exp = parse(result);
 
     free(result);
     result = NULL;
@@ -57,7 +57,7 @@ int do_stuff(int length, char **strings)
     print_styled(exp, POLISH);
     printf("\n");
 
-    Exp *calculated_result = calculate(exp);
+    struct Exp *calculated_result = calculate(exp);
 
     printf("Result:\n");
     print(calculated_result);

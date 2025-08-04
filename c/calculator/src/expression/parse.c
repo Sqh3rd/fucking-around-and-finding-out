@@ -2,24 +2,23 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "structs.h"
 #include "parse.h"
 #include "util.h"
 
-Exp *parse(char *input);
-Exp *parse_recursive(char *input, int lowerbound, int upperbound);
+struct Exp *parse(char *input);
+struct Exp *parse_recursive(char *input, int lowerbound, int upperbound);
 
-Exp *parse(char *input)
+struct Exp *parse(char *input)
 {
     return parse_recursive(input, 0, strlen(input));
 }
 
-Exp *parse_num(char *nums, unsigned int start, unsigned int length)
+struct Exp *parse_num(char *nums, unsigned int start, unsigned int length)
 {
     if (nums == NULL)
         return NULL;
 
-    Exp *num_as_term = malloc(sizeof(struct Exp));
+    struct Exp *num_as_term = malloc(sizeof(struct Exp));
     num_as_term->type = TERM;
     num_as_term->term = malloc(sizeof(struct Term));
 
@@ -29,11 +28,13 @@ Exp *parse_num(char *nums, unsigned int start, unsigned int length)
     return num_as_term;
 }
 
-Exp *parse_var(char var)
+struct Exp *parse_var(char var)
 {
     if (var == 0)
         return NULL;
-    Exp *var_as_term = malloc(sizeof(Exp));
+    
+    printf("[PRSV] %c", var);
+    struct Exp *var_as_term = malloc(sizeof(struct Exp));
     var_as_term->type = TERM;
 
     var_as_term->term = malloc(sizeof(struct Term));
@@ -44,91 +45,172 @@ Exp *parse_var(char var)
     return var_as_term;
 }
 
-Exp *parse_term(char *input, int lowerbound, int upperbound)
+struct Exp *parse_term(char *input, int lowerbound, int upperbound)
 {
     if (lowerbound >= upperbound)
         return NULL;
 
-    printf("Parsing term: ");
-    for (int i = lowerbound; i < upperbound; i++) {
-        printf("%c", *(input + i));
-    }
-    printf("\n");
+    int nums_length = 0;
 
-    char *nums = malloc(upperbound - lowerbound);
-    int num_index = 0;
-
-    struct Exp *result = malloc(sizeof(struct Exp));
-    result->type = TERM;
+    struct Exp *group = malloc(sizeof(struct Exp));
+    group->type = NA;
 
     char potential_var = '\0';
+    int group_start = 0;
+    int depth = 0;
+
+    printf("[PRST]");
+    for (int i = 0; i < lowerbound; i++)
+        printf("  ");
+    for (int i = lowerbound; i < upperbound; i++)
+        printf(" %c", *(input + i));
+    printf("\n");
+
 
     for (int i = lowerbound; i < upperbound; i++)
     {
         char cur = *(input + i);
-        if (potential_var != '\0')
+
+        // There was already a var parsed
+        if (depth == 0 && (potential_var != '\0'
+                           // There were numbers, but not anymore
+                           || (nums_length != 0 && (cur - '0' < 0 || cur - '0' >= 10))
+                           // The previous thing was a group
+                           || (group->type == GROUP)))
         {
+            struct Exp *result = malloc(sizeof(struct Exp));
             result->type = OP;
             result->op = malloc(sizeof(struct Op));
             result->op->operand = '*';
 
-            result->op->left = parse_var(potential_var);
+            if (potential_var != '\0')
+                result->op->left = parse_var(potential_var);
+            else if (nums_length != 0)
+                result->op->left = parse_num(input, lowerbound, nums_length);
+            else
+                result->op->left = group;
 
-            result->op->right = parse_recursive(input, i, upperbound);
+            result->op->right = parse_recursive(input, i + 1, upperbound);
+
+            if (group->type == NA)
+                free_exp(group);
             return result;
         }
 
+        if (cur == '(')
+        {
+            if (depth == 0)
+                group_start = i;
+            depth++;
+            continue;
+        }
+        else if (cur == ')')
+        {
+            depth--;
+            if (depth != 0)
+                continue;
+            group->type = GROUP;
+            group->grouped = parse_recursive(input, group_start + 1, i);
+            continue;
+        }
+
+        if (depth != 0)
+            continue;
+
         if (cur - '0' >= 0 && cur - '0' < 10)
         {
-            *(nums + num_index++) = cur;
+            nums_length++;
         }
         else if (cur - 'a' >= 0 && cur - 'z' <= 0)
         {
-            if (num_index != 0)
-            {
-                result->type = OP;
-                result->op = malloc(sizeof(struct Op));
-                result->op->operand = '*';
-                result->op->left = parse_num(input, lowerbound, num_index);
-                result->op->right = parse_recursive(input, i, upperbound);
-                return result;
-            }
             potential_var = cur;
-        } else {
-            printf("Un-parseable character encountered: %c\n", cur);
         }
     }
+
+    if (nums_length != 0)
+        return parse_num(input, lowerbound, nums_length);
+
     if (potential_var != '\0')
         return parse_var(potential_var);
 
-    if (num_index != 0)
-        return parse_num(input, lowerbound, num_index);
+    if (group->type == GROUP)
+        return group;
+
+    free_exp(group);
     return NULL;
 }
 
-struct Exp *parse_simple(char *input, int lowerbound, int upperbound, char operand)
+struct Exp *parse_operation(char *input, int lowerbound, int upperbound)
 {
     if (lowerbound >= upperbound)
         return NULL;
 
+    printf("[PRSO]");
+    for (int i = 0; i < lowerbound; i++)
+        printf("  ");
+    for (int i = lowerbound; i < upperbound; i++)
+        printf(" %c", *(input + i));
+    printf("\n");
+
     struct Exp *result = malloc(sizeof(struct Exp));
     result->type = OP;
+
+    struct Exp *candidate = malloc(sizeof(struct Exp));
+    candidate->type = NA;
+    int candidate_pos = 0;
+
+    int depth = 0;
 
     for (int i = lowerbound; i < upperbound; i++)
     {
         char cur = *(input + i);
 
-        if (cur == operand)
+        if (cur == '(')
+        {
+            depth++;
+        }
+        else if (cur == ')')
+        {
+            depth--;
+        }
+        if (depth != 0)
+            continue;
+
+        if (cur == '+' || cur == '-')
         {
             result->op = malloc(sizeof(struct Op));
-            result->op->left = parse_recursive(input, lowerbound, i);
+            if (candidate->type != NA)
+            {
+                result->op->left = candidate;
+                candidate->op->right = parse_recursive(input, candidate_pos + 1, i);
+            }
+            else
+            {
+                result->op->left = parse_recursive(input, lowerbound, i);
+            }
             result->op->right = parse_recursive(input, i + 1, upperbound);
-            result->op->operand = operand;
+            result->op->operand = cur;
             return result;
+        }
+
+        if (cur == '*' || cur == '/')
+        {
+            if (candidate->type == OP)
+                continue;
+            candidate_pos = i;
+            candidate->type = OP;
+            candidate->op = malloc(sizeof(struct Op));
+            candidate->op->left = parse_recursive(input, lowerbound, i);
+            candidate->op->operand = cur;
         }
     }
 
     free(result);
+    if (candidate->type != NA) {
+        candidate->op->right = parse_recursive(input, candidate_pos + 1, upperbound);
+        return candidate;
+    }
+    free(candidate);
     return NULL;
 }
 
@@ -136,18 +218,10 @@ struct Exp *parse_recursive(char *input, int lowerbound, int upperbound)
 {
     if (lowerbound >= upperbound)
         return NULL;
-    struct Exp *add = parse_simple(input, lowerbound, upperbound, '+');
-    if (add != NULL)
-        return add;
-    struct Exp *sub = parse_simple(input, lowerbound, upperbound, '-');
-    if (sub != NULL)
-        return sub;
-    struct Exp *mult = parse_simple(input, lowerbound, upperbound, '*');
-    if (mult != NULL)
-        return mult;
-    struct Exp *div = parse_simple(input, lowerbound, upperbound, '/');
-    if (div != NULL)
-        return div;
+
+    struct Exp *operation = parse_operation(input, lowerbound, upperbound);
+    if (operation != NULL)
+        return operation;
     struct Exp *term = parse_term(input, lowerbound, upperbound);
     return term;
 }
