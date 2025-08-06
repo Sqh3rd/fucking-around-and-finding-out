@@ -3,6 +3,7 @@
     "files.associations": {
         "util.h": "c",
         "print.h": "c",
-        "expression.h": "c"
+        "expression.h": "c",
+        "flags.h": "c"
     }
 }

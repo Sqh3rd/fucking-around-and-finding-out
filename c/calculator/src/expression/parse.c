@@ -33,7 +33,6 @@ struct Exp *parse_var(char var)
     if (var == 0)
         return NULL;
     
-    printf("[PRSV] %c", var);
     struct Exp *var_as_term = malloc(sizeof(struct Exp));
     var_as_term->type = TERM;
 
@@ -58,13 +57,6 @@ struct Exp *parse_term(char *input, int lowerbound, int upperbound)
     char potential_var = '\0';
     int group_start = 0;
     int depth = 0;
-
-    printf("[PRST]");
-    for (int i = 0; i < lowerbound; i++)
-        printf("  ");
-    for (int i = lowerbound; i < upperbound; i++)
-        printf(" %c", *(input + i));
-    printf("\n");
 
 
     for (int i = lowerbound; i < upperbound; i++)
@@ -144,13 +136,6 @@ struct Exp *parse_operation(char *input, int lowerbound, int upperbound)
 {
     if (lowerbound >= upperbound)
         return NULL;
-
-    printf("[PRSO]");
-    for (int i = 0; i < lowerbound; i++)
-        printf("  ");
-    for (int i = lowerbound; i < upperbound; i++)
-        printf(" %c", *(input + i));
-    printf("\n");
 
     struct Exp *result = malloc(sizeof(struct Exp));
     result->type = OP;

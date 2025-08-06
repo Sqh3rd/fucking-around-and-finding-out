@@ -3,18 +3,22 @@
 #include <stdlib.h>
 
 #include "expression.h"
+#include "flags.h"
 
-int do_stuff(int length, char **strings);
+int do_stuff(int length, char **strings, short flags);
 
-int main(int argc, char *argv[])
+int main(int argc, char **argv)
 {
-    if (argc == 1)
-    {
-        printf("Nothing to calculate...\n");
-        return 0;
-    }
+    short flags = parse_flags(argc, argv);
+    if (flags == -1) return 0;
 
-    do_stuff(argc - 1, argv + 1);
+    print_flags(flags);
+
+    short flag_positions = 1;
+
+    if (flags & 0b1) flag_positions += 1;
+
+    do_stuff(argc - flag_positions, argv + flag_positions, flags);
     return 0;
 }
 
@@ -37,8 +41,9 @@ void concat_everything(int length, char **strings, char *result)
     }
 }
 
-int do_stuff(int length, char **strings)
+int do_stuff(int length, char **strings, short flags)
 {
+    if (length <= 0) return -1;
     char *result = malloc(one_d_length(length, strings));
 
     concat_everything(length, strings, result);
@@ -49,12 +54,16 @@ int do_stuff(int length, char **strings)
     free(result);
     result = NULL;
 
-    printf("Term:\n");
-    print(exp);
-    printf("\n");
-
-    printf("Polish:\n");
-    print_styled(exp, POLISH);
+    printf("Notated:\n");
+    if (flags & 0b1) {
+        if ((flags >> 15) & 0b1 > 0) {
+            print_styled(exp, REVERSED_POLISH);
+        } else {
+            print_styled(exp, POLISH);
+        }
+    } else {
+        print(exp);
+    }
     printf("\n");
 
     struct Exp *calculated_result = calculate(exp);
@@ -65,5 +74,4 @@ int do_stuff(int length, char **strings)
 
     free_exp(exp);
     free_exp(calculated_result);
-    exp = NULL;
 }

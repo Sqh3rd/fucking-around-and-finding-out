@@ -2,6 +2,7 @@
 #include <stdio.h>
 
 #include "calculate.h"
+#include "structs.h"
 
 struct Exp *calculate(struct Exp *exp);
 
@@ -50,14 +51,11 @@ struct Exp *calculate(struct Exp *exp)
             calculated_num = left_num / right_num;
             break;
         }
-
-        printf("%d %c %d = %d\n", left_num, exp->op->operand, right_num, calculated_num);
-
         result->term->num = calculated_num;
         return result;
     }
 
-    free(result);
+    free_exp(result);
 
     return NULL;
 }
