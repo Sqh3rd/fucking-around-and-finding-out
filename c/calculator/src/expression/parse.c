@@ -4,12 +4,17 @@
 
 #include "parse.h"
 #include "util.h"
+#include "validate.h"
 
 struct Exp *parse(char *input);
 struct Exp *parse_recursive(char *input, int lowerbound, int upperbound);
 
 struct Exp *parse(char *input)
 {
+    if (pre_parse_validation(input) == -1) {
+        return NULL;
+    }
+
     return parse_recursive(input, 0, strlen(input));
 }
 

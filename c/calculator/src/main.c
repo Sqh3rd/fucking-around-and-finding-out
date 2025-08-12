@@ -47,7 +47,6 @@ int do_stuff(int length, char **strings, short flags)
     char *result = malloc(one_d_length(length, strings));
 
     concat_everything(length, strings, result);
-    printf("[EXP] %s\n", result);
 
     struct Exp *exp = parse(result);
 
