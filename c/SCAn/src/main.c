@@ -13,7 +13,7 @@ pthread_mutex_t m_files = PTHREAD_MUTEX_INITIALIZER;
 thread_pool_t *thread_pool;
 int *counters;
 
-const int DEFAULT_THREAD_COUNT = 5;
+const int DEFAULT_THREAD_COUNT = 1;
 
 typedef struct directory_name_t
 {
@@ -57,7 +57,6 @@ int traverse_directories(task_queue_entry_arg_t *task_arg)
         (*(counters + 2 * task_arg->id))++;
 
         struct dirent *pDirent;
-        unsigned short tasks_created = 0;
         while ((pDirent = readdir(pDir)) != NULL)
         {
                 if (!strcmp(".", pDirent->d_name) ||
@@ -90,20 +89,18 @@ int traverse_directories(task_queue_entry_arg_t *task_arg)
                         next->name_len = sub_dir_name_length;
                         next_arg->arg = next;
 
-                        pthread_mutex_lock(thread_pool->worker_pool->m_task_queue);
-                        int err = enqueue_task(thread_pool->worker_pool->task_queue, traverse_directories, next_arg);
+                        printf("%s Trying to enqueue task for directory: %s\n", INFO, sub_dir_name);
+                        int err = enqueue_task_locked(thread_pool->worker_pool->task_queue, traverse_directories, next_arg);
+                        printf("%s Enqueued task for directory: %s\n", INFO, sub_dir_name);
                         if (err != 0)
                         {
                                 free(next->name);
                                 free(next);
                                 free(s);
                                 free(sub_dir_name);
-                                pthread_mutex_unlock(thread_pool->worker_pool->m_task_queue);
                                 printf("%s Failed to enqueue task for directory: %s\n", ERR, sub_dir_name);
                                 return err;
                         }
-                        pthread_mutex_unlock(thread_pool->worker_pool->m_task_queue);
-                        tasks_created = 1;
                 }
                 else if (s->st_mode & S_IFREG)
                 {
@@ -132,9 +129,6 @@ int traverse_directories(task_queue_entry_arg_t *task_arg)
         free(dir_name->name);
         free(dir_name);
         free(task_arg);
-        if (tasks_created == 1) {
-                pthread_cond_broadcast(thread_pool->worker_pool->c_task_queue);
-        }
         return 0;
 }
 
@@ -147,10 +141,7 @@ int traverse(int length, char *path)
         task_queue_entry_arg_t *arg = malloc(sizeof(task_queue_entry_arg_t));
         arg->arg = dir_name;
 
-        pthread_mutex_lock(thread_pool->worker_pool->m_task_queue);
-        enqueue_task(thread_pool->worker_pool->task_queue, traverse_directories, arg);
-        pthread_cond_broadcast(thread_pool->worker_pool->c_task_queue);
-        pthread_mutex_unlock(thread_pool->worker_pool->m_task_queue);
+        enqueue_task_locked(thread_pool->worker_pool->task_queue, traverse_directories, arg);
 
         return 0;
 }
@@ -218,12 +209,6 @@ int main(int argc, char *argv[])
         }
 
         pthread_join(*(thread_pool->watcher_thread), NULL);
-
-        for (int i = 0; i < thread_pool->worker_pool->worker_count; i++)
-        {
-                pthread_t cur = *(thread_pool->worker_pool->worker_threads[i]);
-                pthread_join(cur, NULL);
-        }
 
         clock_t end = clock();
         int directories = 0;
