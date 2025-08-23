@@ -4,8 +4,8 @@
 
 task_queue_t *create_task_queue();
 int destroy_task_queue(task_queue_t *queue);
-int enqueue_task(task_queue_t *queue, int(*task_func)(task_entry_arg_t *), task_entry_arg_t *arg);
-int dequeue_task(task_queue_t *queue, int(* *task_func)(task_entry_arg_t *), task_entry_arg_t **arg);
+int enqueue_task(task_queue_t *queue, int(*task_func)(task_queue_entry_arg_t *), task_queue_entry_arg_t *arg);
+int dequeue_task(task_queue_t *queue, int(* *task_func)(task_queue_entry_arg_t *), task_queue_entry_arg_t **arg);
 
 task_queue_t *create_task_queue() {
     task_queue_t *queue = malloc(sizeof(task_queue_t));
@@ -22,9 +22,9 @@ int destroy_task_queue(task_queue_t *queue) {
     if (!queue) {
         return ILLEGAL_ARGS;
     }
-    task_entry_t *current = queue->head;
+    task_queue_entry_t *current = queue->head;
     while (current != NULL) {
-        task_entry_t *next = current->next;
+        task_queue_entry_t *next = current->next;
         free(current);
         current = next;
     }
@@ -32,11 +32,11 @@ int destroy_task_queue(task_queue_t *queue) {
     return 0;
 }
 
-int enqueue_task(task_queue_t *queue, int(*task_func)(task_entry_arg_t *), task_entry_arg_t *arg) {
+int enqueue_task(task_queue_t *queue, int(*task_func)(task_queue_entry_arg_t *), task_queue_entry_arg_t *arg) {
     if (!queue || !task_func || !arg)
         return ILLEGAL_ARGS;
     
-    task_entry_t *ent = malloc(sizeof(task_entry_t));
+    task_queue_entry_t *ent = malloc(sizeof(task_queue_entry_t));
     if (!ent) {
         return MEMORY_ERROR;
     }
@@ -58,13 +58,13 @@ int enqueue_task(task_queue_t *queue, int(*task_func)(task_entry_arg_t *), task_
     return 0;
 }
 
-int dequeue_task(task_queue_t *queue, int(* *task_func)(task_entry_arg_t *), task_entry_arg_t **arg) {
+int dequeue_task(task_queue_t *queue, int(* *task_func)(task_queue_entry_arg_t *), task_queue_entry_arg_t **arg) {
     if (!queue || !task_func || !arg)
         return ILLEGAL_ARGS;
     if (queue->count == 0)
         return QUEUE_EMPTY;
 
-    task_entry_t *head = queue->head;
+    task_queue_entry_t *head = queue->head;
     *task_func = head->task_func;
     *arg = head->arg;
 
