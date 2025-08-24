@@ -13,7 +13,7 @@ pthread_mutex_t m_files = PTHREAD_MUTEX_INITIALIZER;
 thread_pool_t *thread_pool;
 int *counters;
 
-const int DEFAULT_THREAD_COUNT = 1;
+const int DEFAULT_THREAD_COUNT = 8;
 
 typedef struct directory_name_t
 {
@@ -54,7 +54,9 @@ int traverse_directories(task_queue_entry_arg_t *task_arg)
                 return 1;
         }
 
-        (*(counters + 2 * task_arg->id))++;
+        counters[2 * task_arg->id]++;
+
+        log_debug("Traverse: %s\n", dir_name->name);
 
         struct dirent *pDirent;
         while ((pDirent = readdir(pDir)) != NULL)
@@ -89,22 +91,21 @@ int traverse_directories(task_queue_entry_arg_t *task_arg)
                         next->name_len = sub_dir_name_length;
                         next_arg->arg = next;
 
-                        printf("%s Trying to enqueue task for directory: %s\n", INFO, sub_dir_name);
+                        log_debug("Enqueueing directory: %s\n", sub_dir_name);
                         int err = enqueue_task_locked(thread_pool->worker_pool->task_queue, traverse_directories, next_arg);
-                        printf("%s Enqueued task for directory: %s\n", INFO, sub_dir_name);
                         if (err != 0)
                         {
                                 free(next->name);
                                 free(next);
                                 free(s);
                                 free(sub_dir_name);
-                                printf("%s Failed to enqueue task for directory: %s\n", ERR, sub_dir_name);
+                                log_error("Failed to enqueue task for directory: %s\n", sub_dir_name);
                                 return err;
                         }
                 }
                 else if (s->st_mode & S_IFREG)
                 {
-                        (*(counters + 2 * task_arg->id + 1))++;
+                        counters[2 * task_arg->id + 1]++;
                         file_entry_t *file = malloc(sizeof(file_entry_t));
                         file->name = sub_dir_name;
                         file->name_len = sub_dir_name_length;
@@ -178,10 +179,21 @@ int main(int argc, char *argv[])
 
         struct stat s;
         stat(path, &s);
-        printf("%s", INFO);
-        printd(" Last top level status change:", &(s.st_ctime));
-        printf("%s", INFO);
-        printd(" Last top level data change:  ", &(s.st_mtime));
+        printd("Last top level status change:", &(s.st_ctime));
+        printd("Last top level data change:  ", &(s.st_mtime));
+
+        counters = malloc(2 * DEFAULT_THREAD_COUNT * sizeof(int));
+        for (int i = 0; i < DEFAULT_THREAD_COUNT; i++)
+        {
+                counters[2 * i] = 0;
+                counters[2 * i + 1] = 0;
+        }
+
+        files = malloc(sizeof(file_list_t));
+        files->first = NULL;
+        files->last = NULL;
+
+        init_logger(LOG_LEVEL_DEBUG);
 
         thread_pool_creation_status_t *status = malloc(sizeof(thread_pool_creation_status_t));
         thread_pool = create_thread_pool(DEFAULT_THREAD_COUNT, status);
@@ -190,16 +202,6 @@ int main(int argc, char *argv[])
         {
                 return 1;
         }
-        counters = malloc(2 * DEFAULT_THREAD_COUNT * sizeof(int));
-        for (int i = 0; i < DEFAULT_THREAD_COUNT; i++)
-        {
-                *(counters + 2 * i) = 0;
-                *(counters + 2 * i + 1) = 0;
-        }
-
-        files = malloc(sizeof(file_list_t));
-        files->first = NULL;
-        files->last = NULL;
 
         clock_t begin = clock();
 
@@ -220,6 +222,7 @@ int main(int argc, char *argv[])
         }
 
         double time_spent = (double)(end - begin) / CLOCKS_PER_SEC;
-        printf("%s Traversed %d directories and found %d files in %fs\n", INFO, directories, files_amount, time_spent);
+        log_info("Traversed %d directories and found %d files in %fs\n", directories, files_amount, time_spent);
+        destroy_logger();
         return 0;
 }

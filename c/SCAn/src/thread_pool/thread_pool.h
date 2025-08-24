@@ -28,15 +28,11 @@ typedef struct worker_pool_t {
 
 typedef struct thread_pool_t {
     worker_pool_t *worker_pool;
-
     pthread_t *watcher_thread;
-    pthread_t *logger_thread;
-
-    logging_queue_t *logging_queue;
     unsigned short thread_count;
 } thread_pool_t;
 
-thread_pool_t *create_thread_pool(unsigned short thread_count, logging_queue_t *logging_queue, thread_pool_creation_status_t *status);
+thread_pool_t *create_thread_pool(unsigned short thread_count, thread_pool_creation_status_t *status);
 void free_pool(thread_pool_t *pool);
 
 #endif
