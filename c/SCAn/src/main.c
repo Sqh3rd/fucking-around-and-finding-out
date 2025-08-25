@@ -65,7 +65,9 @@ int traverse_directories(task_queue_entry_arg_t *task_arg)
                     !strcmp("..", pDirent->d_name) ||
                     !strcmp(".scan", pDirent->d_name) ||
                     !strcmp(".git", pDirent->d_name) ||
-                    !strcmp(".idea", pDirent->d_name))
+                    !strcmp(".idea", pDirent->d_name) ||
+                    !strcmp("node_modules", pDirent->d_name)
+                )
                         continue;
 
                 int sub_dir_name_length = dir_name->name_len + 2 + pDirent->d_namlen;
@@ -149,11 +151,11 @@ int traverse(int length, char *path)
 
 int printd(char *str, const time_t *time)
 {
-        char buff[20];
+        char buff[30];
         struct tm *timeinfo = localtime(time);
-        strftime(buff, sizeof(buff), "%c", timeinfo);
+        strftime(buff, sizeof(buff), "%Y:%m:%d %H:%M:%S", timeinfo);
 
-        printf("%s %s\n", str, buff);
+        log_info("%s %s\n", str, buff);
 }
 
 
@@ -164,6 +166,8 @@ int main(int argc, char *argv[])
                 printf("Usage: SCAn [dirname]\n");
                 return 1;
         }
+
+        init_logger(LOG_LEVEL_DEBUG);
 
         char *path;
         if (argc == 2)
@@ -192,8 +196,6 @@ int main(int argc, char *argv[])
         files = malloc(sizeof(file_list_t));
         files->first = NULL;
         files->last = NULL;
-
-        init_logger(LOG_LEVEL_DEBUG);
 
         thread_pool_creation_status_t *status = malloc(sizeof(thread_pool_creation_status_t));
         thread_pool = create_thread_pool(DEFAULT_THREAD_COUNT, status);
