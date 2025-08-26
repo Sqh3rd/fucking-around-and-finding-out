@@ -15,10 +15,10 @@ const char THREAD_FORMAT[] = "[THREAD-XXXX]";
 const char ANSI_RESET[] = "\033[0m";
 const char ANSI_COLOR_GREY[] = "\033[90m";
 
-const char DEBUG[] = "[\033[36mDEBUG\033[0m]";
-const char INFO[] = "[\033[32m INFO\033[0m]";
-const char WARN[] = "[\033[36m WARN\033[0m]";
-const char ERR[] = "[\033[31m  ERR\033[0m]";
+const char DEBUG[]  = "[\033[36mDEBUG\033[0m]";
+const char INFO[]   = "[\033[32m INFO\033[0m]";
+const char WARN[]   = "[\033[36m WARN\033[0m]";
+const char ERR[]    = "[\033[31m  ERR\033[0m]";
 
 const size_t PREFIX_SIZE = sizeof(ANSI_COLOR_GREY) + sizeof(DATE_TIME_FORMAT) + sizeof(THREAD_FORMAT) + sizeof(ANSI_RESET) + sizeof(DEBUG) - 1;
 
@@ -54,12 +54,12 @@ typedef struct logger_t
     logging_queue_t *queue;
     pthread_t *thread;
     log_level_enum_t log_level;
+    FILE *log_file;
 } logger_t;
 
 logger_t *logger = NULL;
 
 logger_t *init_logger(const log_level_enum_t log_level);
-logger_t *get_logger();
 int destroy_logger();
 logging_queue_t *create_logging_queue();
 int destroy_logging_queue(logging_queue_t *queue);
@@ -71,25 +71,29 @@ int log_error(const char *message, ...);
 
 int flush_buffer(logging_queue_t *queue);
 int pprint(log_level_enum_t log_level, const char *message);
-int dequeue_log_and_print(logging_queue_t *queue);
+int dequeue_log_and_print(logging_queue_t *queue, FILE *logfile);
 
 void *log_messages(void *arg)
 {
-    logging_queue_t *logging_queue = (logging_queue_t *)arg;
+    logger_t *logger = (logger_t *)arg;
+    logging_queue_t *logging_queue = logger->queue;
+    logger->log_file = fopen("scan.log", "w");
+    if (!logger->log_file)
+        pprint(LOG_LEVEL_ERROR, "Failed to open log file scan.log for writing...\n");
     unsigned short should_exit = 0;
     struct timespec *wait_time = malloc(sizeof(struct timespec));
     wait_time->tv_sec = 1;
     while (!should_exit)
     {
         pthread_mutex_lock(logging_queue->m_lock);
-        while (!(should_exit = logging_queue->is_stopped) || logging_queue->count == 0)
+        while (!(should_exit = logging_queue->is_stopped) && logging_queue->count == 0)
         {
-            pthread_cond_timedwait(logging_queue->c_updated, logging_queue->m_lock, wait_time);
+            pthread_cond_wait(logging_queue->c_updated, logging_queue->m_lock);
         }
         pthread_mutex_unlock(logging_queue->m_lock);
 
         int result;
-        while ((result = dequeue_log_and_print(logging_queue)) == 0)
+        while ((result = dequeue_log_and_print(logging_queue, logger->log_file)) == 0)
             ;
         if (result != QUEUE_EMPTY)
         {
@@ -98,7 +102,9 @@ void *log_messages(void *arg)
         }
     }
     flush_buffer(logging_queue);
-    dequeue_log_and_print(logging_queue);
+    dequeue_log_and_print(logging_queue, logger->log_file);
+    if (logger->log_file)
+        fclose(logger->log_file);
     pprint(LOG_LEVEL_INFO, "Logger Thread exiting...\n");
 }
 
@@ -129,34 +135,27 @@ logger_t *init_logger(const log_level_enum_t log_level)
     {
         pprint(LOG_LEVEL_ERROR, "Logger queue initialization failed...\n");
         free(logger);
+        logger = NULL;
         pthread_mutex_unlock(&log_init_lock);
         return NULL;
     }
 
     logger->thread = malloc(sizeof(pthread_t));
 
-    if (!logger->thread || pthread_create(logger->thread, NULL, log_messages, logger->queue))
+    if (!logger->thread || pthread_create(logger->thread, NULL, log_messages, logger))
     {
         pprint(LOG_LEVEL_ERROR, "Logger thread initialization failed...\n");
         if (logger->thread)
             free(logger->thread);
         destroy_logging_queue(logger->queue);
         free(logger);
+        logger = NULL;
         pthread_mutex_unlock(&log_init_lock);
         return NULL;
     }
     logger->log_level = log_level;
     pthread_mutex_unlock(&log_init_lock);
     pprint(LOG_LEVEL_INFO, "Logger initialized...\n");
-    return logger;
-}
-
-logger_t *get_logger()
-{
-    if (!logger)
-    {
-        return init_logger(LOG_LEVEL_INFO);
-    }
     return logger;
 }
 
@@ -244,7 +243,7 @@ int destroy_logging_queue(logging_queue_t *queue)
 size_t format_message_prefix(char *buffer, size_t buffer_size, log_level_enum_t log_level)
 {
     if (buffer_size < PREFIX_SIZE)
-        return -1;
+        return ILLEGAL_ARGS;
 
     const char *level_str;
     switch (log_level)
@@ -262,7 +261,7 @@ size_t format_message_prefix(char *buffer, size_t buffer_size, log_level_enum_t 
         level_str = ERR;
         break;
     default:
-        return ILLEGAL_ARGS;
+        return FATAL_ERROR;
     }
 
     size_t len = 0;
@@ -287,11 +286,41 @@ size_t format_message_prefix(char *buffer, size_t buffer_size, log_level_enum_t 
     return len;
 }
 
-int write_to_buff(char *buffer, size_t buffer_size, const log_level_enum_t level, const char *message, va_list args) {
-    if (buffer_size < PREFIX_SIZE)
-        return -1;
-    format_message_prefix(buffer, buffer_size, level);
+int write_to_buff(char *buffer, size_t buffer_size, const log_level_enum_t level, const char *message, va_list args)
+{
+    int len = format_message_prefix(buffer, buffer_size, level);
+    if (len < 0)
+        return len;
 
+    int written = vsnprintf(buffer + len, buffer_size - len, message, args);
+    if (written < 0)
+        return written;
+    return len + written;
+}
+
+logging_queue_entry_t *append_buff_to_queue(logging_queue_t *queue, char *buff)
+{
+    logging_queue_entry_t *ent = malloc(sizeof(logging_queue_entry_t));
+    if (!ent)
+    {
+        return NULL;
+    }
+
+    ent->buff = buff;
+    ent->next = NULL;
+    if (!queue->head)
+    {
+        queue->head = ent;
+        queue->tail = ent;
+    }
+    else
+    {
+        queue->tail->next = ent;
+        queue->tail = ent;
+    }
+    queue->count++;
+
+    return ent;
 }
 
 int v_enqueue_log(logging_queue_t *queue, const log_level_enum_t level, const char *message, va_list args)
@@ -301,59 +330,67 @@ int v_enqueue_log(logging_queue_t *queue, const log_level_enum_t level, const ch
         return ILLEGAL_ARGS;
     }
 
-    if (!queue->cur_buff)
-        queue->cur_buff = malloc(__LOG_BUFFER_SIZE__ * sizeof(char));
+    int result = 0;
 
     size_t remaining_buff = __LOG_BUFFER_SIZE__ - queue->cur_buff_last_entry;
 
-    unsigned int should_create_new_entry = remaining_buff < PREFIX_SIZE ? 1 : 0;
-    unsigned int new_text_present = 0;
-
-    if (!should_create_new_entry) {
-        new_text_present = 1;
-        size_t remainder = 0;
-        size_t len;
-        len = format_message_prefix(queue->cur_buff + queue->cur_buff_last_entry, __LOG_BUFFER_SIZE__ - queue->cur_buff_last_entry, level);
-        if (len < 0)
+    if (remaining_buff < PREFIX_SIZE || !queue->cur_buff)
+    {
+        if (queue->cur_buff)
         {
-            return ILLEGAL_ARGS;
+            append_buff_to_queue(queue, queue->cur_buff);
+            result = 1;
         }
-        queue->cur_buff_last_entry += len;
-
-        remaining_buff -= len;
-
-        len = vsnprintf(queue->cur_buff + queue->cur_buff_last_entry, remaining_buff, message, args);
-        
-        if (len > remaining_buff) {
-            should_create_new_entry = 1;
-            queue->cur_buff[__LOG_BUFFER_SIZE__ - PREFIX_SIZE - remaining_buff + 1] = '\0';
-        }
-    }
-
-    if (should_create_new_entry) {
-        logging_queue_entry_t *ent = malloc(sizeof(logging_queue_entry_t));
-        if (!ent)
-        {
-            return MEMORY_ERROR;
-        }
-
-        ent->buff = queue->cur_buff;
-        ent->next = NULL;
-        if (!queue->head)
-        {
-            queue->head = ent;
-            queue->tail = ent;
-        }
-        else
-        {
-            queue->tail->next = ent;
-            queue->tail = ent;
-        }
-        queue->count++;
-
         queue->cur_buff = malloc(__LOG_BUFFER_SIZE__ * sizeof(char));
         queue->cur_buff_last_entry = 0;
+        remaining_buff = __LOG_BUFFER_SIZE__;
     }
+
+    va_list args_copy;
+    va_copy(args_copy, args);
+
+    char *last_char_in_buff = queue->cur_buff + queue->cur_buff_last_entry;
+
+    int len = write_to_buff(last_char_in_buff, remaining_buff, level, message, args_copy);
+    va_end(args_copy);
+    if (len < 0)
+        return len;
+    if (len < remaining_buff)
+    {
+        queue->cur_buff_last_entry += len;
+        return result;
+    }
+
+    queue->cur_buff[queue->cur_buff_last_entry] = '\0';
+
+    size_t new_buff_size = len < __LOG_BUFFER_SIZE__ ? __LOG_BUFFER_SIZE__ : len + 1;
+    char *temp = malloc(new_buff_size * sizeof(char));
+    if (!temp)
+    {
+        return MEMORY_ERROR;
+    }
+
+    append_buff_to_queue(queue, queue->cur_buff);
+
+    va_copy(args_copy, args);
+    len = write_to_buff(temp, new_buff_size, level, message, args_copy);
+    va_end(args_copy);
+
+    if (len < 0)
+    {
+        return FATAL_ERROR;
+    }
+
+    if (len + 1 >= __LOG_BUFFER_SIZE__)
+    {
+        append_buff_to_queue(queue, temp);
+        queue->cur_buff = malloc(__LOG_BUFFER_SIZE__ * sizeof(char));
+        queue->cur_buff_last_entry = 0;
+
+        return 1;
+    }
+    queue->cur_buff = temp;
+    queue->cur_buff_last_entry = len + 1;
 
     return 0;
 }
@@ -369,11 +406,11 @@ int enqueue_log(logging_queue_t *queue, const log_level_enum_t level, const char
 
 int enqueue_log_locked(const log_level_enum_t level, const char *message, va_list args)
 {
-    if (!level || !message)
+    if (!message)
     {
         return ILLEGAL_ARGS;
     }
-    logger_t *logger = get_logger();
+
     if (!logger || !logger->queue)
     {
         return LOGGER_MISSING;
@@ -385,18 +422,16 @@ int enqueue_log_locked(const log_level_enum_t level, const char *message, va_lis
     }
     pthread_mutex_lock(queue->m_lock);
     int result = v_enqueue_log(queue, level, message, args);
-    if (result != 0)
-    {
-        enqueue_log(queue, LOG_LEVEL_ERROR, "Failed to enqueue log entry with error: %d\n", result);
-    }
-    pthread_cond_broadcast(queue->c_updated);
+    if (result < 0)
+        result = enqueue_log(queue, LOG_LEVEL_ERROR, "Failed to enqueue log entry with error: %d\n", result);
+    if (result > 0)
+        pthread_cond_broadcast(queue->c_updated);
     pthread_mutex_unlock(queue->m_lock);
     return result;
 }
 
 int log_debug(const char *message, ...)
 {
-
     va_list args;
     va_start(args, message);
     int result = enqueue_log_locked(LOG_LEVEL_DEBUG, message, args);
@@ -431,7 +466,7 @@ int log_error(const char *message, ...)
     return result;
 };
 
-int dequeue_log_and_print(logging_queue_t *queue)
+int dequeue_log_and_print(logging_queue_t *queue, FILE *logfile)
 {
     if (!queue)
     {
@@ -453,7 +488,9 @@ int dequeue_log_and_print(logging_queue_t *queue)
     queue->count--;
 
     pthread_mutex_unlock(queue->m_lock);
-    printf(entry->buff);
+    fputs(entry->buff, stdout);
+    if (logfile)
+        fputs(entry->buff, logfile);
     free(entry->buff);
     free(entry);
     return 0;
@@ -473,28 +510,12 @@ int flush_buffer(logging_queue_t *queue)
         return 0;
     }
 
-    logging_queue_entry_t *ent = malloc(sizeof(logging_queue_entry_t));
+    logging_queue_entry_t *ent = append_buff_to_queue(queue, queue->cur_buff);
+    pthread_mutex_unlock(queue->m_lock);
     if (!ent)
     {
-        pthread_mutex_unlock(queue->m_lock);
         return MEMORY_ERROR;
     }
-    ent->buff = queue->cur_buff;
-    ent->next = NULL;
-
-    queue->cur_buff = NULL;
-    queue->cur_buff_last_entry = 0;
-
-    if (!queue->head)
-    {
-        queue->head = queue->tail = ent;
-    }
-    else
-    {
-        queue->tail = queue->tail->next = ent;
-    }
-
-    pthread_mutex_unlock(queue->m_lock);
     return 0;
 }
 

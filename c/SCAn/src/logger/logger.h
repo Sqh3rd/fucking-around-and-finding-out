@@ -4,8 +4,8 @@
 #include <pthread.h>
 #include <stdarg.h>
 
-#define ILLEGAL_FORMAT_SPECIFIER    -5
-#define LOGGER_MISSING              -6
+#define ILLEGAL_FORMAT_SPECIFIER    -6
+#define LOGGER_MISSING              -7
 
 typedef struct logger_t logger_t;
 

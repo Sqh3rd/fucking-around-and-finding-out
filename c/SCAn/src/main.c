@@ -66,7 +66,7 @@ int traverse_directories(task_queue_entry_arg_t *task_arg)
                     !strcmp(".scan", pDirent->d_name) ||
                     !strcmp(".git", pDirent->d_name) ||
                     !strcmp(".idea", pDirent->d_name) ||
-                    !strcmp("node_modules", pDirent->d_name)
+                    !strcmp(".node_modules", pDirent->d_name)
                 )
                         continue;
 
