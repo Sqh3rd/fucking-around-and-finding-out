@@ -13,7 +13,7 @@ pthread_mutex_t m_files = PTHREAD_MUTEX_INITIALIZER;
 thread_pool_t *thread_pool;
 int *counters;
 
-const int DEFAULT_THREAD_COUNT = 8;
+const int DEFAULT_THREAD_COUNT = 5;
 
 typedef struct directory_name_t
 {
@@ -167,7 +167,7 @@ int main(int argc, char *argv[])
                 return 1;
         }
 
-        init_logger(LOG_LEVEL_DEBUG);
+        init_logger(LOG_LEVEL_INFO);
 
         char *path;
         if (argc == 2)
@@ -225,6 +225,6 @@ int main(int argc, char *argv[])
 
         double time_spent = (double)(end - begin) / CLOCKS_PER_SEC;
         log_info("Traversed %d directories and found %d files in %fs\n", directories, files_amount, time_spent);
-        destroy_logger();
+        stop_logger();
         return 0;
 }

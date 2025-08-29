@@ -18,7 +18,7 @@ typedef enum log_level_enum_t
 } log_level_enum_t;
 
 logger_t *init_logger(log_level_enum_t log_level);
-int destroy_logger();
+int stop_logger();
 
 int log_debug(const char *message, ...);
 int log_info(const char *message, ...);
