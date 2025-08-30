@@ -3,8 +3,7 @@
 
 #include <pthread.h>
 
-#include "task_queue.h"
-#include "logger.h"
+#include "steps.h"
 
 typedef unsigned int busy_threads_t;
 
@@ -30,6 +29,7 @@ typedef struct thread_pool_t {
     worker_pool_t *worker_pool;
     pthread_t *watcher_thread;
     unsigned short thread_count;
+    steps_t *program_steps;
 } thread_pool_t;
 
 thread_pool_t *create_thread_pool(unsigned short thread_count, thread_pool_creation_status_t *status);

@@ -13,7 +13,7 @@ pthread_mutex_t m_files = PTHREAD_MUTEX_INITIALIZER;
 thread_pool_t *thread_pool;
 int *counters;
 
-const int DEFAULT_THREAD_COUNT = 5;
+const int DEFAULT_THREAD_COUNT = 7;
 
 typedef struct directory_name_t
 {

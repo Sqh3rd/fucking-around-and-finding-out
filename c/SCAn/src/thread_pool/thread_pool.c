@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <pthread.h>
 
+#include "logger.h"
 #include "thread_pool.h"
 #include "task_queue.h"
 
@@ -44,12 +45,14 @@ typedef struct
 {
     int id;
     worker_pool_t *worker_pool;
+    steps_t *steps;
 } worker_thread_entry_arg_t;
 
 void *get_tasks(void *arg)
 {
     worker_thread_entry_arg_t *thread_entry_arg = (worker_thread_entry_arg_t *)arg;
     worker_pool_t *worker_pool = thread_entry_arg->worker_pool;
+    steps_t *steps = thread_entry_arg->steps;
     task_queue_t *task_queue = worker_pool->task_queue;
 
     int id = thread_entry_arg->id;
@@ -183,6 +186,7 @@ thread_pool_t *create_thread_pool(unsigned short thread_count, thread_pool_creat
     pthread_cond_t *c_busy_threads = malloc(sizeof(pthread_cond_t));
     pthread_mutex_t *m_busy_threads = malloc(sizeof(pthread_mutex_t));
     unsigned int *busy_threads = malloc(sizeof(unsigned int));
+    steps_t *steps = create_steps();
 
     unsigned short all_workers_mallocd = 1;
     for (int i = 0; i < thread_count; i++)
@@ -202,6 +206,7 @@ thread_pool_t *create_thread_pool(unsigned short thread_count, thread_pool_creat
         !c_busy_threads ||
         !m_busy_threads ||
         !busy_threads ||
+        !steps ||
         !all_workers_mallocd)
     {
         destroy_task_queue(task_queue);
@@ -215,6 +220,8 @@ thread_pool_t *create_thread_pool(unsigned short thread_count, thread_pool_creat
             free(c_busy_threads);
         if (m_busy_threads)
             free(m_busy_threads);
+        if (steps)
+            free(steps);
         if (busy_threads)
             free(busy_threads);
         for (int i = 0; i < thread_count; i++)

@@ -8,7 +8,7 @@
 #include "logger.h"
 #include "constants.h"
 
-#define __LOG_BUFFER_SIZE__ 240
+#define __LOG_BUFFER_SIZE__ 350
 
 const char DATE_TIME_FORMAT[] = "0000-00-00T00:00:00.000";
 const char THREAD_FORMAT[] = "[THREAD-XXXX]";
@@ -41,7 +41,10 @@ typedef struct out_stream_info_t
     int (*put_log)(const char *buff, FILE *out_stream);
     FILE *out_stream;
     log_level_enum_t log_level;
+    int flushes;
     int changes;
+    long last_flush;
+    long tbf;
 } out_stream_info_t;
 
 typedef struct logging_queue_t
@@ -142,16 +145,13 @@ int destroy_logger(logger_t *logger)
 {
     if (!logger)
         return ILLEGAL_ARGS;
-    pprint(LOG_LEVEL_INFO, "Destroying logger...\n");
     if (logger->thread)
     {
         pthread_mutex_lock(logger->queue->m_lock);
         logger->queue->is_stopped = 1;
         pthread_cond_signal(logger->queue->c_updated);
         pthread_mutex_unlock(logger->queue->m_lock);
-        pprint(LOG_LEVEL_INFO, "Waiting for logging thread to finish...\n");
         pthread_join(*logger->thread, NULL);
-        pprint(LOG_LEVEL_INFO, "Logging thread finished.\n");
     }
     destroy_logging_queue(logger->queue);
     free(logger);
@@ -172,13 +172,14 @@ void *log_messages(void *arg)
 {
     logging_queue_t *logging_queue = (logging_queue_t *)arg;
     unsigned short should_exit = 0;
+    struct timespec *ts = malloc(sizeof(struct timespec));
     while (!should_exit)
     {
         pthread_mutex_lock(logging_queue->m_lock);
 
         do
         {
-            pthread_cond_wait(logging_queue->c_updated, logging_queue->m_lock);
+            pthread_cond_timedwait(logging_queue->c_updated, logging_queue->m_lock, rel_time(ts, 100));
             should_exit = logging_queue->is_stopped;
         } while (!should_exit && logging_queue->count == 0);
 
@@ -198,8 +199,8 @@ void *log_messages(void *arg)
             printf("%d\n", result);
         }
     }
+    free(ts);
     stat_it_up(logging_queue);
-    pprint(LOG_LEVEL_INFO, "Logging thread exited.\n");
     close_out_streams(logging_queue);
 }
 
@@ -208,7 +209,6 @@ logger_t *init_logger(const log_level_enum_t log_level)
     pthread_mutex_lock(&log_init_lock);
     if (logger)
     {
-        pprint(LOG_LEVEL_INFO, "Logger already initialized...\n");
         pthread_mutex_unlock(&log_init_lock);
         return logger;
     }
@@ -222,7 +222,7 @@ logger_t *init_logger(const log_level_enum_t log_level)
         return NULL;
     }
 
-    logger->queue = create_logging_queue(log_level, stdout);
+    logger->queue = create_logging_queue();
 
     FILE *log_file = fopen("log.txt", "w");
     if (!log_file)
@@ -276,11 +276,8 @@ logger_t *init_logger(const log_level_enum_t log_level)
     return logger;
 }
 
-logging_queue_t *create_logging_queue(log_level_enum_t log_level, FILE *out_stream)
+logging_queue_t *create_logging_queue()
 {
-    if (!out_stream)
-        return NULL;
-
     logging_queue_t *queue = malloc(sizeof(logging_queue_t));
     if (!queue)
     {
@@ -319,6 +316,8 @@ out_stream_info_t *create_out_stream_info(log_level_enum_t log_level, FILE *out_
     info->log_level = log_level;
     info->out_stream = out_stream;
     info->changes = 0;
+    info->last_flush = 0;
+    info->flushes = 0;
     if (isatty(fileno(out_stream)))
         info->put_log = fputs;
     else
@@ -580,10 +579,16 @@ int flush_out_streams(logging_queue_t *queue)
     for (int i = 0; i < queue->out_stream_count; i++)
     {
         out_stream_info_t *info = queue->out_stream_infos[i];
-        if (info->out_stream && info->changes > 10)
+        struct timespec *ts = malloc(sizeof(struct timespec));
+        clock_gettime(CLOCK_REALTIME, ts);
+        if (info->out_stream && (info->changes > 100 || info->last_flush < ts->tv_nsec - 100000000))
         {
             fflush(info->out_stream);
             info->changes = 0;
+            if (info->last_flush != 0)
+                info->tbf += ts->tv_nsec - info->last_flush;
+            info->last_flush = ts->tv_nsec;
+            info->flushes++;
         }
     }
 }
@@ -643,10 +648,21 @@ int stat_it_up(logging_queue_t *queue)
     if (!queue)
         return ILLEGAL_ARGS;
 
-    char *stat_buffer = malloc(2048 * sizeof(char));
-    char *message = "\n----- LOGGER STATS -----\nTotal Logs: %u\nBuffer Misses: %u\nAvg Buffer Misses: %.2f%%\nAvg Buffer Usage: %.2f%%\nAvg Buffer Usage (chars): %.0f\n------------------------\n";
+    char message[] = "\n----- LOGGER STATS -----\nTotal Logs: %u\nBuffer Misses: %u\nAvg Buffer Misses: %.2f%%\nAvg Buffer Usage: %.2f%%\nAvg Buffer Usage (chars): %.0f\n";
+    char message_per_out_stream[] = "\nOut Stream: %d\nFlushes: %d\nTime Between Flushes: %f seconds\n";
+    size_t size = (sizeof(message) + sizeof(message_per_out_stream) * 3 + 1024) * sizeof(char);
+    char *stat_buffer = malloc(size);
     double avg_buff_usage = buffer_usage / (double)total_logs;
-    snprintf(stat_buffer, 2048, message, total_logs, buffer_misses, buffer_misses / (double)total_logs * 100, avg_buff_usage * 100, avg_buff_usage * __LOG_BUFFER_SIZE__);
+    int len = snprintf(stat_buffer, size, message, total_logs, buffer_misses, buffer_misses / (double)total_logs * 100, avg_buff_usage * 100, avg_buff_usage * __LOG_BUFFER_SIZE__);
+    for (int i = 0; i < queue->out_stream_count; i++)
+    {
+        out_stream_info_t *info = queue->out_stream_infos[i];
+        if (len >= size)
+        {
+            break;
+        }
+        len += snprintf(stat_buffer + len, size - len, message_per_out_stream, i, info->flushes, info->tbf / (info->flushes ? info->flushes : 1) / 1000000000.0);
+    }
     append_buff_to_queue(queue, LOG_LEVEL_DEBUG, stat_buffer);
     dequeue_log_and_put(queue);
     return 0;
