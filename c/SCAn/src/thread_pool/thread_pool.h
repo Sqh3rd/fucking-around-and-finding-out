@@ -3,9 +3,11 @@
 
 #include <pthread.h>
 
-#include "steps.h"
+#include "task_queue_public.h"
 
 typedef unsigned int busy_threads_t;
+typedef struct worker_pool_t worker_pool_t;
+typedef struct thread_pool_t thread_pool_t;
 
 typedef enum {
     CREATED,
@@ -14,25 +16,9 @@ typedef enum {
     THREAD_CREATION_FAILED,
 } thread_pool_creation_status_t;
 
-typedef struct worker_pool_t {
-    task_queue_t *task_queue;
-
-    busy_threads_t *busy_threads;
-    pthread_cond_t *c_busy_threads;
-    pthread_mutex_t *m_busy_threads;
-
-    pthread_t **worker_threads;
-    unsigned short worker_count;
-} worker_pool_t;
-
-typedef struct thread_pool_t {
-    worker_pool_t *worker_pool;
-    pthread_t *watcher_thread;
-    unsigned short thread_count;
-    steps_t *program_steps;
-} thread_pool_t;
-
 thread_pool_t *create_thread_pool(unsigned short thread_count, thread_pool_creation_status_t *status);
 void free_pool(thread_pool_t *pool);
+int enqueue_task(thread_pool_t *pool, int(*task_func)(task_queue_entry_arg_t *), task_queue_entry_arg_t *arg);
+int join(thread_pool_t *pool);
 
 #endif

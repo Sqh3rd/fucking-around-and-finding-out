@@ -224,7 +224,7 @@ logger_t *init_logger(const log_level_enum_t log_level)
 
     logger->queue = create_logging_queue();
 
-    FILE *log_file = fopen("log.txt", "w");
+    FILE *log_file = fopen("scan.log", "w");
     if (!log_file)
     {
         pprint(LOG_LEVEL_WARN, "Failed to open log file...\n");

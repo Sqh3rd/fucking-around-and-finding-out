@@ -6,6 +6,24 @@
 #include "thread_pool.h"
 #include "task_queue.h"
 
+typedef struct worker_pool_t {
+    task_queue_t *task_queue;
+
+    busy_threads_t *busy_threads;
+    pthread_cond_t *c_busy_threads;
+    pthread_mutex_t *m_busy_threads;
+
+    pthread_t **worker_threads;
+    unsigned short worker_count;
+} worker_pool_t;
+
+typedef struct thread_pool_t {
+    worker_pool_t *worker_pool;
+    pthread_t *watcher_thread;
+    unsigned short thread_count;
+} thread_pool_t;
+
+
 thread_pool_t *create_thread_pool(unsigned short thread_count, thread_pool_creation_status_t *status);
 void free_pool(thread_pool_t *pool);
 
@@ -31,7 +49,7 @@ void free_pool(thread_pool_t *pool)
         free(pool->worker_pool->worker_threads[i]);
     }
     free(pool->worker_pool->worker_threads);
-    destroy_task_queue(pool->worker_pool->task_queue);
+    _destroy_task_queue(pool->worker_pool->task_queue);
     free(pool->worker_pool);
 
     // Others
@@ -45,14 +63,12 @@ typedef struct
 {
     int id;
     worker_pool_t *worker_pool;
-    steps_t *steps;
 } worker_thread_entry_arg_t;
 
 void *get_tasks(void *arg)
 {
     worker_thread_entry_arg_t *thread_entry_arg = (worker_thread_entry_arg_t *)arg;
     worker_pool_t *worker_pool = thread_entry_arg->worker_pool;
-    steps_t *steps = thread_entry_arg->steps;
     task_queue_t *task_queue = worker_pool->task_queue;
 
     int id = thread_entry_arg->id;
@@ -79,7 +95,7 @@ void *get_tasks(void *arg)
         pthread_cond_broadcast(worker_pool->c_busy_threads);
         pthread_mutex_unlock(worker_pool->m_busy_threads);
 
-        int err = dequeue_task(task_queue, &task_func, &task_arg);
+        int err = _dequeue_task(task_queue, &task_func, &task_arg);
         pthread_mutex_unlock(task_queue->m_lock);
 
         if (err != 0)
@@ -134,7 +150,7 @@ void *watch_threads(void *arg)
 
         log_info("All tasks completed, stopping task queue...\n");
 
-        int err = stop_task_queue(task_queue);
+        int err = _stop_task_queue(task_queue);
         if (err)
         {
             log_info("Failed to stop task queue: %d\n", err);
@@ -149,7 +165,7 @@ void *watch_threads(void *arg)
     {
         pthread_join(*(worker_pool->worker_threads[i]), NULL);
     }
-    destroy_task_queue(task_queue);
+    _destroy_task_queue(task_queue);
     worker_pool->task_queue = NULL;
     log_info("Watcher Thread exiting...\n");
 }
@@ -167,7 +183,7 @@ thread_pool_t *create_thread_pool(unsigned short thread_count, thread_pool_creat
     // --
 
     *status = OUT_OF_MEMORY;
-    task_queue_t *task_queue = create_task_queue();
+    task_queue_t *task_queue = _create_task_queue();
     if (!task_queue)
     {
         return NULL;
@@ -176,7 +192,7 @@ thread_pool_t *create_thread_pool(unsigned short thread_count, thread_pool_creat
     pthread_t **worker_threads = malloc(thread_count * sizeof(pthread_t *));
     if (!worker_threads)
     {
-        destroy_task_queue(task_queue);
+        _destroy_task_queue(task_queue);
         return NULL;
     }
 
@@ -186,7 +202,6 @@ thread_pool_t *create_thread_pool(unsigned short thread_count, thread_pool_creat
     pthread_cond_t *c_busy_threads = malloc(sizeof(pthread_cond_t));
     pthread_mutex_t *m_busy_threads = malloc(sizeof(pthread_mutex_t));
     unsigned int *busy_threads = malloc(sizeof(unsigned int));
-    steps_t *steps = create_steps();
 
     unsigned short all_workers_mallocd = 1;
     for (int i = 0; i < thread_count; i++)
@@ -206,10 +221,9 @@ thread_pool_t *create_thread_pool(unsigned short thread_count, thread_pool_creat
         !c_busy_threads ||
         !m_busy_threads ||
         !busy_threads ||
-        !steps ||
         !all_workers_mallocd)
     {
-        destroy_task_queue(task_queue);
+        _destroy_task_queue(task_queue);
         if (pool)
             free(pool);
         if (worker_pool)
@@ -220,8 +234,6 @@ thread_pool_t *create_thread_pool(unsigned short thread_count, thread_pool_creat
             free(c_busy_threads);
         if (m_busy_threads)
             free(m_busy_threads);
-        if (steps)
-            free(steps);
         if (busy_threads)
             free(busy_threads);
         for (int i = 0; i < thread_count; i++)
@@ -286,4 +298,20 @@ thread_pool_t *create_thread_pool(unsigned short thread_count, thread_pool_creat
     log_info("Thread Pool created with %hu threads\n", thread_count);
 
     return pool;
+}
+
+int enqueue_task(thread_pool_t *pool, int(*task_func)(task_queue_entry_arg_t *), task_queue_entry_arg_t *arg) {
+    if (!pool || !pool->worker_pool)
+        return ILLEGAL_ARGS;
+    return _enqueue_task_locked(pool->worker_pool->task_queue, task_func, arg);
+}
+
+int join(thread_pool_t *pool) {
+    if (!pool || !pool->worker_pool)
+        return ILLEGAL_ARGS;
+    int result = pthread_join(*(pool->watcher_thread), NULL);
+    if (result)
+        return result;
+    free_pool(pool);
+    return 0;
 }

@@ -2,17 +2,17 @@
 #include <stdio.h>
 #include "task_queue.h"
 
-task_queue_t *create_task_queue();
-int stop_task_queue(task_queue_t *queue);
-int destroy_task_queue(task_queue_t *queue);
-int enqueue_task(task_queue_t *queue, int (*task_func)(task_queue_entry_arg_t *), task_queue_entry_arg_t *arg);
-int dequeue_task(task_queue_t *queue, int (**task_func)(task_queue_entry_arg_t *), task_queue_entry_arg_t **arg);
+task_queue_t *_create_task_queue();
+int _stop_task_queue(task_queue_t *queue);
+int _destroy_task_queue(task_queue_t *queue);
+int _enqueue_task(task_queue_t *queue, int (*task_func)(task_queue_entry_arg_t *), task_queue_entry_arg_t *arg);
+int _dequeue_task(task_queue_t *queue, int (**task_func)(task_queue_entry_arg_t *), task_queue_entry_arg_t **arg);
 
 int stop_task_queue_locked(task_queue_t *queue);
-int enqueue_task_locked(task_queue_t *queue, int (*task_func)(task_queue_entry_arg_t *), task_queue_entry_arg_t *arg);
-int dequeue_task_locked(task_queue_t *queue, int (**task_func)(task_queue_entry_arg_t *), task_queue_entry_arg_t **arg);
+int _enqueue_task_locked(task_queue_t *queue, int (*task_func)(task_queue_entry_arg_t *), task_queue_entry_arg_t *arg);
+int _dequeue_task_locked(task_queue_t *queue, int (**task_func)(task_queue_entry_arg_t *), task_queue_entry_arg_t **arg);
 
-task_queue_t *create_task_queue()
+task_queue_t *_create_task_queue()
 {
     task_queue_t *queue = malloc(sizeof(task_queue_t));
     if (!queue)
@@ -37,7 +37,7 @@ task_queue_t *create_task_queue()
     return queue;
 }
 
-int stop_task_queue(task_queue_t *queue)
+int _stop_task_queue(task_queue_t *queue)
 {
     if (!queue)
     {
@@ -47,7 +47,7 @@ int stop_task_queue(task_queue_t *queue)
     return 0;
 }
 
-int destroy_task_queue(task_queue_t *queue)
+int _destroy_task_queue(task_queue_t *queue)
 {
     if (!queue)
     {
@@ -68,7 +68,7 @@ int destroy_task_queue(task_queue_t *queue)
     return 0;
 }
 
-int enqueue_task(task_queue_t *queue, int (*task_func)(task_queue_entry_arg_t *), task_queue_entry_arg_t *arg)
+int _enqueue_task(task_queue_t *queue, int (*task_func)(task_queue_entry_arg_t *), task_queue_entry_arg_t *arg)
 {
     if (!queue || !task_func || !arg)
         return ILLEGAL_ARGS;
@@ -106,7 +106,7 @@ int enqueue_task(task_queue_t *queue, int (*task_func)(task_queue_entry_arg_t *)
     return 0;
 }
 
-int dequeue_task(task_queue_t *queue, int (**task_func)(task_queue_entry_arg_t *), task_queue_entry_arg_t **arg)
+int _dequeue_task(task_queue_t *queue, int (**task_func)(task_queue_entry_arg_t *), task_queue_entry_arg_t **arg)
 {
     if (!queue || !task_func || !arg)
         return ILLEGAL_ARGS;
@@ -136,7 +136,7 @@ int stop_task_queue_locked(task_queue_t *queue)
         return ILLEGAL_ARGS;
     }
     pthread_mutex_lock(queue->m_lock);
-    int err = stop_task_queue(queue);
+    int err = _stop_task_queue(queue);
     if (err == 0)
     {
         pthread_cond_broadcast(queue->c_updated);
@@ -145,13 +145,13 @@ int stop_task_queue_locked(task_queue_t *queue)
     return err;
 }
 
-int enqueue_task_locked(task_queue_t *queue, int (*task_func)(task_queue_entry_arg_t *), task_queue_entry_arg_t *arg)
+int _enqueue_task_locked(task_queue_t *queue, int (*task_func)(task_queue_entry_arg_t *), task_queue_entry_arg_t *arg)
 {
     if (!queue)
         return ILLEGAL_ARGS;
 
     pthread_mutex_lock(queue->m_lock);
-    int err = enqueue_task(queue, task_func, arg);
+    int err = _enqueue_task(queue, task_func, arg);
     if (err == 0)
     {
         pthread_cond_broadcast(queue->c_updated);
@@ -160,13 +160,13 @@ int enqueue_task_locked(task_queue_t *queue, int (*task_func)(task_queue_entry_a
     return err;
 }
 
-int dequeue_task_locked(task_queue_t *queue, int (**task_func)(task_queue_entry_arg_t *), task_queue_entry_arg_t **arg)
+int _dequeue_task_locked(task_queue_t *queue, int (**task_func)(task_queue_entry_arg_t *), task_queue_entry_arg_t **arg)
 {
     if (!queue)
         return ILLEGAL_ARGS;
 
     pthread_mutex_lock(queue->m_lock);
-    int err = dequeue_task(queue, task_func, arg);
+    int err = _dequeue_task(queue, task_func, arg);
     if (err == 0)
     {
         pthread_cond_broadcast(queue->c_updated);

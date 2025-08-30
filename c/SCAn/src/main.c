@@ -7,6 +7,7 @@
 #include <pthread.h>
 
 #include "thread_pool.h"
+#include "logger.h"
 
 pthread_mutex_t m_files = PTHREAD_MUTEX_INITIALIZER;
 
@@ -66,7 +67,7 @@ int traverse_directories(task_queue_entry_arg_t *task_arg)
                     !strcmp(".scan", pDirent->d_name) ||
                     !strcmp(".git", pDirent->d_name) ||
                     !strcmp(".idea", pDirent->d_name) ||
-                    !strcmp(".node_modules", pDirent->d_name)
+                    !strcmp("node_modules", pDirent->d_name)
                 )
                         continue;
 
@@ -94,7 +95,7 @@ int traverse_directories(task_queue_entry_arg_t *task_arg)
                         next_arg->arg = next;
 
                         log_debug("Enqueueing directory: %s\n", sub_dir_name);
-                        int err = enqueue_task_locked(thread_pool->worker_pool->task_queue, traverse_directories, next_arg);
+                        int err = enqueue_task(thread_pool, traverse_directories, next_arg);
                         if (err != 0)
                         {
                                 free(next->name);
@@ -144,7 +145,7 @@ int traverse(int length, char *path)
         task_queue_entry_arg_t *arg = malloc(sizeof(task_queue_entry_arg_t));
         arg->arg = dir_name;
 
-        enqueue_task_locked(thread_pool->worker_pool->task_queue, traverse_directories, arg);
+        enqueue_task(thread_pool, traverse_directories, arg);
 
         return 0;
 }
@@ -212,7 +213,7 @@ int main(int argc, char *argv[])
                 return 2;
         }
 
-        pthread_join(*(thread_pool->watcher_thread), NULL);
+        join(thread_pool);
 
         clock_t end = clock();
         int directories = 0;
