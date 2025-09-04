@@ -599,10 +599,10 @@ int flush_out_streams(logging_queue_t *queue, int force)
         struct timespec *ts = malloc(sizeof(struct timespec));
         clock_gettime(CLOCK_REALTIME, ts);
         time_t td_sec = ts->tv_sec - info->last_flush->tv_sec;
-        time_t td_nsec = td_sec * 1000000000 - ts->tv_nsec - info->last_flush->tv_nsec;
+        time_t td_nsec = td_sec * 1000000000 + ts->tv_nsec - info->last_flush->tv_nsec;
 
 
-        if (!force && info->flushes && td_sec < info->min_interval->tv_sec) continue;
+        if (!force && info->flushes && td_nsec < info->min_interval->tv_sec) continue;
 
         if (force ||
             td_sec > info->min_interval->tv_sec || 
