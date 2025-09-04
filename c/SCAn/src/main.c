@@ -14,7 +14,7 @@ pthread_mutex_t m_files = PTHREAD_MUTEX_INITIALIZER;
 thread_pool_t *thread_pool;
 int *counters;
 
-const int DEFAULT_THREAD_COUNT = 7;
+const int DEFAULT_THREAD_COUNT = 5;
 
 typedef struct directory_name_t
 {
@@ -66,8 +66,8 @@ int traverse_directories(task_queue_entry_arg_t *task_arg)
                     !strcmp("..", pDirent->d_name) ||
                     !strcmp(".scan", pDirent->d_name) ||
                     !strcmp(".git", pDirent->d_name) ||
-                    !strcmp(".idea", pDirent->d_name) ||
-                    !strcmp("node_modules", pDirent->d_name)
+                    !strcmp(".idea", pDirent->d_name)
+                    //!strcmp("node_modules", pDirent->d_name)
                 )
                         continue;
 

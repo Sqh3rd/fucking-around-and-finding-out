@@ -42,9 +42,11 @@ typedef struct out_stream_info_t
     FILE *out_stream;
     log_level_enum_t log_level;
     int flushes;
-    int changes;
-    long last_flush;
-    long tbf;
+    unsigned short changes;
+
+    struct timespec *last_flush;
+    long long tbf;
+    struct timespec *min_interval;
 } out_stream_info_t;
 
 typedef struct logging_queue_t
@@ -91,10 +93,10 @@ int log_error(const char *message, ...);
 int pprint(log_level_enum_t log_level, const char *message);
 int dequeue_log_and_put(logging_queue_t *queue);
 int put_without_escape(const char *buff, FILE *out_stream);
-int flush_out_streams(logging_queue_t *queue);
+int flush_out_streams(logging_queue_t *queue, int force);
 int close_out_streams(logging_queue_t *queue);
 int stat_it_up(logging_queue_t *queue);
-out_stream_info_t *create_out_stream_info(log_level_enum_t log_level, FILE *out_stream);
+out_stream_info_t *create_out_stream_info(log_level_enum_t log_level, FILE *out_stream, int min_interval);
 
 int destroy_out_stream_info(out_stream_info_t *info)
 {
@@ -191,7 +193,7 @@ void *log_messages(void *arg)
             result = dequeue_log_and_put(logging_queue);
         } while (result == 0);
 
-        flush_out_streams(logging_queue);
+        flush_out_streams(logging_queue, 0);
 
         if (result != QUEUE_EMPTY)
         {
@@ -201,7 +203,6 @@ void *log_messages(void *arg)
     }
     free(ts);
     stat_it_up(logging_queue);
-    close_out_streams(logging_queue);
 }
 
 logger_t *init_logger(const log_level_enum_t log_level)
@@ -242,10 +243,10 @@ logger_t *init_logger(const log_level_enum_t log_level)
     logger->queue->out_stream_count = log_file ? 3 : 2;
     logger->queue->out_stream_infos = calloc(logger->queue->out_stream_count, sizeof(out_stream_info_t *));
 
-    logger->queue->out_stream_infos[0] = create_out_stream_info(LOG_LEVEL_ERROR, stderr);
-    logger->queue->out_stream_infos[1] = create_out_stream_info(log_level, stdout);
+    logger->queue->out_stream_infos[0] = create_out_stream_info(LOG_LEVEL_ERROR, stderr, 100);
+    logger->queue->out_stream_infos[1] = create_out_stream_info(log_level, stdout, 100);
     if (log_file)
-        logger->queue->out_stream_infos[2] = create_out_stream_info(LOG_LEVEL_DEBUG, log_file);
+        logger->queue->out_stream_infos[2] = create_out_stream_info(LOG_LEVEL_DEBUG, log_file, 500);
 
     logger->lowest_log_level = LOG_LEVEL_DEBUG;
 
@@ -304,7 +305,7 @@ logging_queue_t *create_logging_queue()
     return queue;
 }
 
-out_stream_info_t *create_out_stream_info(log_level_enum_t log_level, FILE *out_stream)
+out_stream_info_t *create_out_stream_info(log_level_enum_t log_level, FILE *out_stream, int min_interval_ms)
 {
     if (!out_stream)
         return NULL;
@@ -312,12 +313,25 @@ out_stream_info_t *create_out_stream_info(log_level_enum_t log_level, FILE *out_
     out_stream_info_t *info = malloc(sizeof(out_stream_info_t));
     if (!info)
         return NULL;
+    info->last_flush = malloc(sizeof(struct timespec));
+    info->min_interval = malloc(sizeof(struct timespec));
+    if (!info->last_flush || !info->min_interval)
+    {
+        free(info);
+        if (info->last_flush)
+            free(info->last_flush);
+        if (info->min_interval)
+            free(info->min_interval);
+        return NULL;
+    }
+    info->min_interval->tv_sec = min_interval_ms / 1000;
+    info->min_interval->tv_nsec = (min_interval_ms % 1000) * 1000000L;
 
     info->log_level = log_level;
     info->out_stream = out_stream;
-    info->changes = 0;
-    info->last_flush = 0;
+    info->changes = 0u;
     info->flushes = 0;
+    info->tbf = 0LL;
     if (isatty(fileno(out_stream)))
         info->put_log = fputs;
     else
@@ -566,7 +580,7 @@ int dequeue_log_and_put(logging_queue_t *queue)
         if (entry->level >= info->log_level)
         {
             info->put_log(entry->buff, info->out_stream);
-            info->changes++;
+            info->changes |= 1;
         }
     }
     free(entry->buff);
@@ -574,22 +588,38 @@ int dequeue_log_and_put(logging_queue_t *queue)
     return 0;
 }
 
-int flush_out_streams(logging_queue_t *queue)
+int flush_out_streams(logging_queue_t *queue, int force)
 {
     for (int i = 0; i < queue->out_stream_count; i++)
     {
         out_stream_info_t *info = queue->out_stream_infos[i];
+        if (!info->out_stream || !info->changes)
+            continue;
+
         struct timespec *ts = malloc(sizeof(struct timespec));
         clock_gettime(CLOCK_REALTIME, ts);
-        if (info->out_stream && (info->changes > 100 || info->last_flush < ts->tv_nsec - 100000000))
+        time_t td_sec = ts->tv_sec - info->last_flush->tv_sec;
+        time_t td_nsec = td_sec * 1000000000 - ts->tv_nsec - info->last_flush->tv_nsec;
+
+
+        if (!force && info->flushes && td_sec < info->min_interval->tv_sec) continue;
+
+        if (force ||
+            td_sec > info->min_interval->tv_sec || 
+            td_nsec >= info->min_interval->tv_nsec ||
+            info->flushes == 0)
         {
             fflush(info->out_stream);
             info->changes = 0;
-            if (info->last_flush != 0)
-                info->tbf += ts->tv_nsec - info->last_flush;
-            info->last_flush = ts->tv_nsec;
+            printf("TTLF: %lli s, %lli ns\n", td_sec, (long long)td_nsec);
+            if (info->flushes != 0)
+                info->tbf += td_sec * 1000000000LL + td_nsec * 1LL;
+            printf("TBF %lli ns\n", info->tbf);
+            info->last_flush->tv_nsec = ts->tv_nsec;
+            info->last_flush->tv_sec = ts->tv_sec;
             info->flushes++;
         }
+        free(ts);
     }
 }
 
@@ -649,8 +679,8 @@ int stat_it_up(logging_queue_t *queue)
         return ILLEGAL_ARGS;
 
     char message[] = "\n----- LOGGER STATS -----\nTotal Logs: %u\nBuffer Misses: %u\nAvg Buffer Misses: %.2f%%\nAvg Buffer Usage: %.2f%%\nAvg Buffer Usage (chars): %.0f\n";
-    char message_per_out_stream[] = "\nOut Stream: %d\nFlushes: %d\nTime Between Flushes: %f seconds\n";
-    size_t size = (sizeof(message) + sizeof(message_per_out_stream) * 3 + 1024) * sizeof(char);
+    char message_per_out_stream[] = "\n-----\nOut Stream: %d\nFlushes: %d\nAverage Time Between Flushes: %9lli ns\nShould've been: %9li s, %9li ns\n";
+    size_t size = (sizeof(message) + sizeof(message_per_out_stream) * 3 + 2048) * sizeof(char);
     char *stat_buffer = malloc(size);
     double avg_buff_usage = buffer_usage / (double)total_logs;
     int len = snprintf(stat_buffer, size, message, total_logs, buffer_misses, buffer_misses / (double)total_logs * 100, avg_buff_usage * 100, avg_buff_usage * __LOG_BUFFER_SIZE__);
@@ -661,9 +691,18 @@ int stat_it_up(logging_queue_t *queue)
         {
             break;
         }
-        len += snprintf(stat_buffer + len, size - len, message_per_out_stream, i, info->flushes, info->tbf / (info->flushes ? info->flushes : 1) / 1000000000.0);
+        len += snprintf(stat_buffer + len,
+            size - len,
+            message_per_out_stream,
+            i,
+            info->flushes,
+            info->tbf / (info->flushes ? info->flushes : 1),
+            info->min_interval->tv_sec,
+            info->min_interval->tv_nsec);
     }
     append_buff_to_queue(queue, LOG_LEVEL_DEBUG, stat_buffer);
-    dequeue_log_and_put(queue);
+    int result;
+    while (!(result = dequeue_log_and_put(queue)));
+    flush_out_streams(queue, 1);
     return 0;
 }
