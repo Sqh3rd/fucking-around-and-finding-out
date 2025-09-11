@@ -59,6 +59,8 @@ int traverse_directories(task_queue_entry_arg_t *task_arg)
 
         log_debug("Traverse: %s\n", dir_name->name);
 
+        unsigned short encounteredDirs = 0;
+        unsigned short encounteredFiles = 0;
         struct dirent *pDirent;
         while ((pDirent = readdir(pDir)) != NULL)
         {
@@ -88,6 +90,7 @@ int traverse_directories(task_queue_entry_arg_t *task_arg)
 
                 if (s->st_mode & S_IFDIR)
                 {
+                        encounteredDirs++;
                         task_queue_entry_arg_t *next_arg = malloc(sizeof(task_queue_entry_arg_t));
                         directory_name_t *next = malloc(sizeof(directory_name_t));
                         next->name = sub_dir_name;
@@ -108,6 +111,7 @@ int traverse_directories(task_queue_entry_arg_t *task_arg)
                 }
                 else if (s->st_mode & S_IFREG)
                 {
+                        encounteredFiles++;
                         counters[2 * task_arg->id + 1]++;
                         file_entry_t *file = malloc(sizeof(file_entry_t));
                         file->name = sub_dir_name;
@@ -133,6 +137,7 @@ int traverse_directories(task_queue_entry_arg_t *task_arg)
         free(dir_name->name);
         free(dir_name);
         free(task_arg);
+        log_info("Added %4u dirs and %4u files\n", encounteredDirs, encounteredFiles);
         return 0;
 }
 

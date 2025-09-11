@@ -11,10 +11,11 @@ typedef struct logger_t logger_t;
 
 typedef enum log_level_enum_t
 {
-    LOG_LEVEL_DEBUG = 1,
-    LOG_LEVEL_INFO = 2,
-    LOG_LEVEL_WARN = 3,
-    LOG_LEVEL_ERROR = 4,
+    LOG_LEVEL_TRACE,
+    LOG_LEVEL_DEBUG,
+    LOG_LEVEL_INFO,
+    LOG_LEVEL_WARN,
+    LOG_LEVEL_ERROR,
 } log_level_enum_t;
 
 logger_t *init_logger(log_level_enum_t log_level);

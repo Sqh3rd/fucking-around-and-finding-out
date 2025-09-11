@@ -40,6 +40,7 @@ typedef struct out_stream_info_t
 {
     int (*put_log)(const char *buff, FILE *out_stream);
     FILE *out_stream;
+    unsigned short isTTYandSTDO;
     log_level_enum_t log_level;
     int flushes;
     unsigned short changes;
@@ -95,7 +96,7 @@ int dequeue_log_and_put(logging_queue_t *queue);
 int put_without_escape(const char *buff, FILE *out_stream);
 int flush_out_streams(logging_queue_t *queue, int force);
 int close_out_streams(logging_queue_t *queue);
-int stat_it_up(logging_queue_t *queue);
+int stat_it_up(logger_t *logger);
 out_stream_info_t *create_out_stream_info(log_level_enum_t log_level, FILE *out_stream, int min_interval);
 
 int destroy_out_stream_info(out_stream_info_t *info)
@@ -172,7 +173,8 @@ struct timespec *rel_time(struct timespec *ts, const long milliseconds)
 
 void *log_messages(void *arg)
 {
-    logging_queue_t *logging_queue = (logging_queue_t *)arg;
+    logger_t *logger = (logger_t *)arg;
+    logging_queue_t *logging_queue = logger->queue;
     unsigned short should_exit = 0;
     struct timespec *ts = malloc(sizeof(struct timespec));
     while (!should_exit)
@@ -202,7 +204,7 @@ void *log_messages(void *arg)
         }
     }
     free(ts);
-    stat_it_up(logging_queue);
+    stat_it_up(logger);
 }
 
 logger_t *init_logger(const log_level_enum_t log_level)
@@ -263,7 +265,7 @@ logger_t *init_logger(const log_level_enum_t log_level)
     }
 
     logger->thread = malloc(sizeof(pthread_t));
-    if (!logger->thread || pthread_create(logger->thread, NULL, log_messages, logger->queue))
+    if (!logger->thread || pthread_create(logger->thread, NULL, log_messages, logger))
     {
         pprint(LOG_LEVEL_ERROR, "Logger thread initialization failed...\n");
         destroy_logger(logger);
@@ -332,8 +334,13 @@ out_stream_info_t *create_out_stream_info(log_level_enum_t log_level, FILE *out_
     info->changes = 0u;
     info->flushes = 0;
     info->tbf = 0LL;
+    info->isTTYandSTDO = 0u;
     if (isatty(fileno(out_stream)))
+    {
         info->put_log = fputs;
+        if (out_stream == stdout)
+            info->isTTYandSTDO = 1u;
+    }
     else
         info->put_log = put_without_escape;
 
@@ -611,10 +618,8 @@ int flush_out_streams(logging_queue_t *queue, int force)
         {
             fflush(info->out_stream);
             info->changes = 0;
-            printf("TTLF: %lli s, %lli ns\n", td_sec, (long long)td_nsec);
             if (info->flushes != 0)
                 info->tbf += td_sec * 1000000000LL + td_nsec * 1LL;
-            printf("TBF %lli ns\n", info->tbf);
             info->last_flush->tv_nsec = ts->tv_nsec;
             info->last_flush->tv_sec = ts->tv_sec;
             info->flushes++;
@@ -673,10 +678,14 @@ int put_without_escape(const char *buff, FILE *logfile)
     return 0;
 }
 
-int stat_it_up(logging_queue_t *queue)
+int stat_it_up(logger_t *logger)
 {
-    if (!queue)
+    if (!logger || !logger->queue)
         return ILLEGAL_ARGS;
+    if (logger->lowest_log_level > LOG_LEVEL_TRACE)
+        return 0;
+
+    logging_queue_t *queue = logger->queue;
 
     char message[] = "\n----- LOGGER STATS -----\nTotal Logs: %u\nBuffer Misses: %u\nAvg Buffer Misses: %.2f%%\nAvg Buffer Usage: %.2f%%\nAvg Buffer Usage (chars): %.0f\n";
     char message_per_out_stream[] = "\n-----\nOut Stream: %d\nFlushes: %d\nAverage Time Between Flushes: %9lli ns\nShould've been: %9li s, %9li ns\n";
@@ -700,7 +709,7 @@ int stat_it_up(logging_queue_t *queue)
             info->min_interval->tv_sec,
             info->min_interval->tv_nsec);
     }
-    append_buff_to_queue(queue, LOG_LEVEL_DEBUG, stat_buffer);
+    append_buff_to_queue(queue, LOG_LEVEL_TRACE, stat_buffer);
     int result;
     while (!(result = dequeue_log_and_put(queue)));
     flush_out_streams(queue, 1);
